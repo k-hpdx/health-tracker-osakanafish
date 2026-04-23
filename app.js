@@ -32,11 +32,11 @@ const YESNO_ITEMS = [
 ];
 
 const SCALE_LABELS = [
-  { value: 1, emoji: '😫', label: 'とても悪い' },
-  { value: 2, emoji: '😕', label: '悪い' },
-  { value: 3, emoji: '😐', label: '普通' },
+  { value: 5, emoji: '😄', label: 'とても良い' },
   { value: 4, emoji: '🙂', label: '良い' },
-  { value: 5, emoji: '😄', label: 'とても良い' }
+  { value: 3, emoji: '😐', label: '普通' },
+  { value: 2, emoji: '😕', label: '悪い' },
+  { value: 1, emoji: '😫', label: 'とても悪い' }
 ];
 
 const WEEKDAYS_JP = ['日', '月', '火', '水', '木', '金', '土'];
