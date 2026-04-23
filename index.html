@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#7fb77e">
+  <title>健康記録</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app">
+
+    <!-- ===== 記録画面 ===== -->
+    <section id="view-record" class="view active">
+      <header class="view-header">
+        <h1 id="record-date">記録</h1>
+        <p id="record-subtitle" class="subtitle"></p>
+      </header>
+
+      <div class="card">
+        <h2>🍵 お茶（ノンカフェイン）</h2>
+        <p class="hint">飲んだものにチェック（複数可）</p>
+        <div id="teas-list" class="chip-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>☕ カフェイン</h2>
+        <p class="hint">飲んだものにチェック（複数可）</p>
+        <div id="caffeine-list" class="chip-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>📋 今日の有無</h2>
+        <div id="yesno-list" class="yesno-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>🌤 天気</h2>
+        <p class="hint">今日の天気（1つ選択）</p>
+        <div id="weather-list" class="weather-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>😊 体調</h2>
+        <div id="condition-scale" class="scale-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>🩺 症状</h2>
+        <p class="hint">あてはまるものにチェック（複数可）</p>
+        <div id="symptoms-list" class="chip-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>📝 メモ（任意）</h2>
+        <textarea id="notes-input" rows="3" placeholder="気づいたことなど"></textarea>
+      </div>
+
+      <div class="save-area">
+        <button id="save-btn" class="primary">保存する</button>
+        <p id="save-status" class="save-status"></p>
+      </div>
+    </section>
+
+    <!-- ===== カレンダー画面 ===== -->
+    <section id="view-calendar" class="view">
+      <header class="view-header">
+        <div class="cal-nav">
+          <button id="cal-prev" class="icon-btn">◀</button>
+          <h1 id="cal-title">カレンダー</h1>
+          <button id="cal-next" class="icon-btn">▶</button>
+        </div>
+        <p class="subtitle">色付きの日付は記録済み・タップで詳細</p>
+      </header>
+
+      <div class="card">
+        <div class="cal-weekdays">
+          <span>日</span><span>月</span><span>火</span><span>水</span>
+          <span>木</span><span>金</span><span>土</span>
+        </div>
+        <div id="cal-grid" class="cal-grid"></div>
+      </div>
+
+      <div id="cal-detail" class="card hidden">
+        <h2 id="cal-detail-title"></h2>
+        <div id="cal-detail-body"></div>
+        <button id="cal-detail-edit" class="secondary">この日を編集する</button>
+      </div>
+
+      <div class="card">
+        <h2>📊 今月のサマリー</h2>
+        <div id="monthly-stats" class="stats-grid"></div>
+      </div>
+
+      <div class="card">
+        <h2>📈 体調の推移</h2>
+        <p class="hint">日ごとの体調スコア（1〜5）</p>
+        <div id="condition-chart" class="condition-chart"></div>
+      </div>
+
+      <div class="card">
+        <h2>🩺 症状ランキング</h2>
+        <p class="hint">今月よく出た症状</p>
+        <div id="symptom-ranking" class="ranking-list"></div>
+      </div>
+    </section>
+
+    <!-- ===== 設定画面 ===== -->
+    <section id="view-settings" class="view">
+      <header class="view-header">
+        <h1>設定</h1>
+        <p class="subtitle">バックアップと症状のカスタマイズ</p>
+      </header>
+
+      <div class="card">
+        <h2>💾 バックアップ</h2>
+        <p class="hint">記録はこの端末にのみ保存されます。定期的にエクスポートしてファイルを保管してください。</p>
+        <button id="export-btn" class="secondary">JSONでエクスポート</button>
+        <button id="import-btn" class="secondary">JSONからインポート</button>
+        <input type="file" id="import-file" accept=".json" hidden>
+      </div>
+
+      <div class="card">
+        <h2>🍵 お茶リスト（ノンカフェイン）</h2>
+        <p class="hint">記録画面に表示されるお茶の候補</p>
+        <ul id="teas-edit-list" class="edit-list"></ul>
+        <div class="row">
+          <input type="text" id="new-tea-input" placeholder="新しいお茶を追加">
+          <button id="add-tea-btn" class="secondary">追加</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>☕ カフェインリスト</h2>
+        <p class="hint">記録画面に表示されるカフェイン飲料の候補</p>
+        <ul id="caffeine-edit-list" class="edit-list"></ul>
+        <div class="row">
+          <input type="text" id="new-caffeine-input" placeholder="新しいカフェイン飲料を追加">
+          <button id="add-caffeine-btn" class="secondary">追加</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>🩺 症状リスト</h2>
+        <p class="hint">記録画面に表示される症状の候補</p>
+        <ul id="symptoms-edit-list" class="edit-list"></ul>
+        <div class="row">
+          <input type="text" id="new-symptom-input" placeholder="新しい症状を追加">
+          <button id="add-symptom-btn" class="secondary">追加</button>
+        </div>
+      </div>
+
+      <div class="card danger-zone">
+        <h2>⚠️ データ初期化</h2>
+        <p class="hint">すべての記録を削除します（元に戻せません）</p>
+        <button id="reset-btn" class="danger">すべてのデータを削除</button>
+      </div>
+
+      <div class="card">
+        <h2>ℹ️ バージョン</h2>
+        <p class="hint">健康記録 v1.0.0</p>
+      </div>
+    </section>
+
+    <!-- ===== ボトムナビ ===== -->
+    <nav class="bottom-nav">
+      <button class="nav-btn active" data-view="record">
+        <span class="nav-icon">📝</span>
+        <span class="nav-label">記録</span>
+      </button>
+      <button class="nav-btn" data-view="calendar">
+        <span class="nav-icon">📅</span>
+        <span class="nav-label">カレンダー</span>
+      </button>
+      <button class="nav-btn" data-view="settings">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">設定</span>
+      </button>
+    </nav>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
