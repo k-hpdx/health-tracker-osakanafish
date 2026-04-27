@@ -114,8 +114,44 @@
       </header>
 
       <div class="card">
-        <h2>💾 バックアップ</h2>
-        <p class="hint">記録はこの端末にのみ保存されます。定期的にエクスポートしてファイルを保管してください。</p>
+        <h2>☁️ クラウド同期（GitHub Gist）</h2>
+        <p class="hint">GitHubのプライベートGistにデータを保存して、PCとスマホで記録を共有できます。</p>
+
+        <label class="sync-label">GitHub Personal Access Token</label>
+        <input type="password" id="sync-token" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+
+        <label class="sync-label">Gist ID（空欄なら新規作成されます）</label>
+        <input type="text" id="sync-gist-id" placeholder="例: 1a2b3c4d5e6f..." autocomplete="off">
+
+        <div class="sync-toggle">
+          <label>
+            <input type="checkbox" id="sync-auto-toggle">
+            <span>保存時に自動でクラウドに送信／起動時に自動取得</span>
+          </label>
+        </div>
+
+        <button id="sync-push" class="secondary">⬆️ クラウドに保存</button>
+        <button id="sync-pull" class="secondary">⬇️ クラウドから読込</button>
+
+        <p id="sync-status" class="sync-status">最終同期: 未同期</p>
+
+        <details class="sync-help">
+          <summary>📖 設定方法</summary>
+          <ol>
+            <li><a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Fine-grained Personal Access Token</a> を作成（Account permissions → "Gists" に Read and Write を付与）</li>
+            <li>または classic token なら <code>gist</code> スコープを付与</li>
+            <li>取得したトークンを上の欄に貼り付け</li>
+            <li>初回端末で「Gist ID」を空欄のまま「⬆️ クラウドに保存」を押す → 新規Gistが作成され、Gist IDが自動入力されます</li>
+            <li>もう片方の端末では同じトークン＋表示されたGist IDを入力して「⬇️ クラウドから読込」</li>
+            <li>あとは自動同期をONにしておけば保存時に同期されます</li>
+          </ol>
+          <p class="hint">⚠️ トークンはこの端末のブラウザに保存されます。共用端末では使用しないでください。</p>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2>💾 ローカルバックアップ</h2>
+        <p class="hint">クラウド同期とは別に、JSONファイルでバックアップできます。</p>
         <button id="export-btn" class="secondary">JSONでエクスポート</button>
         <button id="import-btn" class="secondary">JSONからインポート</button>
         <input type="file" id="import-file" accept=".json" hidden>
@@ -159,7 +195,7 @@
 
       <div class="card">
         <h2>ℹ️ バージョン</h2>
-        <p class="hint">健康記録 v1.0.0</p>
+        <p class="hint">健康記録 v1.1.0</p>
       </div>
     </section>
 

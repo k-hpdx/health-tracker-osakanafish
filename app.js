@@ -3,6 +3,8 @@
 
 /* ---------- 定数 ---------- */
 const STORAGE_KEY = 'health-tracker-v1';
+const SYNC_KEY = 'health-tracker-sync-v1';
+const GIST_FILENAME = 'health-tracker-data.json';
 
 const DEFAULT_TEAS = [
   'ハブ茶', '白湯', '番茶', '麦茶', 'トウモロコシ茶',
@@ -49,6 +51,8 @@ let state = {
   selectedCalDate: null,
   data: loadData()
 };
+
+let syncConfig = loadSyncConfig();
 
 /* ---------- ユーティリティ ---------- */
 function todayKey() {
@@ -105,6 +109,125 @@ function defaultData() {
 
 function saveData() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
+}
+
+/* ---------- 同期設定の永続化 ---------- */
+function defaultSyncConfig() {
+  return {
+    token: '',
+    gistId: '',
+    autoSync: false,
+    lastSyncedAt: null
+  };
+}
+
+function loadSyncConfig() {
+  try {
+    const raw = localStorage.getItem(SYNC_KEY);
+    if (!raw) return defaultSyncConfig();
+    return Object.assign(defaultSyncConfig(), JSON.parse(raw));
+  } catch (e) {
+    console.error('同期設定の読込失敗', e);
+    return defaultSyncConfig();
+  }
+}
+
+function saveSyncConfig() {
+  localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
+}
+
+/* ---------- GitHub Gist API ---------- */
+function gistHeaders() {
+  return {
+    'Authorization': `token ${syncConfig.token}`,
+    'Accept': 'application/vnd.github+json',
+    'Content-Type': 'application/json'
+  };
+}
+
+async function gistCreate() {
+  const res = await fetch('https://api.github.com/gists', {
+    method: 'POST',
+    headers: gistHeaders(),
+    body: JSON.stringify({
+      description: '健康記録アプリのデータ',
+      public: false,
+      files: {
+        [GIST_FILENAME]: { content: JSON.stringify(state.data, null, 2) }
+      }
+    })
+  });
+  if (!res.ok) throw new Error(`Gist作成失敗 (${res.status})`);
+  const json = await res.json();
+  return json.id;
+}
+
+async function gistUpdate() {
+  const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
+    method: 'PATCH',
+    headers: gistHeaders(),
+    body: JSON.stringify({
+      files: {
+        [GIST_FILENAME]: { content: JSON.stringify(state.data, null, 2) }
+      }
+    })
+  });
+  if (!res.ok) throw new Error(`Gist更新失敗 (${res.status})`);
+}
+
+async function gistFetch() {
+  const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
+    headers: gistHeaders()
+  });
+  if (!res.ok) throw new Error(`Gist取得失敗 (${res.status})`);
+  const json = await res.json();
+  const file = json.files && json.files[GIST_FILENAME];
+  if (!file) throw new Error('Gist内にデータファイルが見つかりません');
+  return JSON.parse(file.content);
+}
+
+/* ---------- 同期処理 ---------- */
+async function syncPush() {
+  if (!syncConfig.token) throw new Error('トークンが未設定です');
+  state.data.lastModified = Date.now();
+  saveData();
+  if (!syncConfig.gistId) {
+    syncConfig.gistId = await gistCreate();
+  } else {
+    await gistUpdate();
+  }
+  syncConfig.lastSyncedAt = Date.now();
+  saveSyncConfig();
+}
+
+async function syncPull(silent = false) {
+  if (!syncConfig.token || !syncConfig.gistId) {
+    throw new Error('トークンとGist IDの両方が必要です');
+  }
+  const cloud = await gistFetch();
+  const cloudTime = cloud.lastModified || 0;
+  const localTime = state.data.lastModified || 0;
+
+  if (cloudTime === localTime) return false;
+  if (cloudTime < localTime && !silent) {
+    if (!confirm('クラウドのデータの方が古いです。それでもローカルを上書きしますか？')) {
+      return false;
+    }
+  }
+  if (cloudTime < localTime && silent) return false;
+
+  state.data = {
+    records: cloud.records || {},
+    customTeas: cloud.customTeas || [...DEFAULT_TEAS],
+    customCaffeine: cloud.customCaffeine || [...DEFAULT_CAFFEINE],
+    customSymptoms: cloud.customSymptoms || [...DEFAULT_SYMPTOMS],
+    lastModified: cloudTime || Date.now()
+  };
+  saveData();
+  syncConfig.lastSyncedAt = Date.now();
+  saveSyncConfig();
+  renderAll();
+  return true;
 }
 
 function getRecord(dateKey) {
@@ -265,10 +388,25 @@ function isEmptyRecord(r) {
 
 /* ---------- 保存ボタン ---------- */
 function onSave() {
+  state.data.lastModified = Date.now();
   saveData();
   const status = document.getElementById('save-status');
   status.textContent = `✓ ${formatDateJP(state.editingDate)} の記録を保存しました`;
   setTimeout(() => { status.textContent = ''; }, 3000);
+
+  if (syncConfig.autoSync && syncConfig.token) {
+    autoPushInBackground(status);
+  }
+}
+
+async function autoPushInBackground(statusEl) {
+  try {
+    await syncPush();
+    if (statusEl) statusEl.textContent += '（☁️同期済み）';
+  } catch (e) {
+    console.error('クラウド同期失敗', e);
+    if (statusEl) statusEl.textContent = '⚠️ クラウド同期失敗: ' + e.message;
+  }
 }
 
 /* ---------- カレンダー画面 ---------- */
@@ -634,6 +772,9 @@ function bindEvents() {
     });
   });
 
+  // クラウド同期
+  bindSyncEvents();
+
   // リセット
   document.getElementById('reset-btn').addEventListener('click', () => {
     if (!confirm('すべての記録を完全に削除します。本当によろしいですか？')) return;
@@ -646,9 +787,91 @@ function bindEvents() {
   });
 }
 
+/* ---------- 同期UIイベント ---------- */
+function bindSyncEvents() {
+  const tokenInput = document.getElementById('sync-token');
+  const gistIdInput = document.getElementById('sync-gist-id');
+  const autoToggle = document.getElementById('sync-auto-toggle');
+
+  if (!tokenInput) return;
+
+  tokenInput.value = syncConfig.token || '';
+  gistIdInput.value = syncConfig.gistId || '';
+  autoToggle.checked = !!syncConfig.autoSync;
+  refreshSyncStatus();
+
+  tokenInput.addEventListener('change', () => {
+    syncConfig.token = tokenInput.value.trim();
+    saveSyncConfig();
+  });
+  gistIdInput.addEventListener('change', () => {
+    syncConfig.gistId = gistIdInput.value.trim();
+    saveSyncConfig();
+  });
+  autoToggle.addEventListener('change', () => {
+    syncConfig.autoSync = autoToggle.checked;
+    saveSyncConfig();
+    refreshSyncStatus(autoToggle.checked ? '自動同期 ON' : '自動同期 OFF');
+  });
+
+  document.getElementById('sync-push').addEventListener('click', async () => {
+    syncConfig.token = tokenInput.value.trim();
+    syncConfig.gistId = gistIdInput.value.trim();
+    saveSyncConfig();
+    if (!syncConfig.token) { setSyncStatus('⚠️ トークンを入力してください'); return; }
+    setSyncStatus('⏳ 送信中...');
+    try {
+      await syncPush();
+      gistIdInput.value = syncConfig.gistId;
+      refreshSyncStatus('✓ クラウドへ保存しました');
+    } catch (e) {
+      setSyncStatus('⚠️ ' + e.message);
+    }
+  });
+
+  document.getElementById('sync-pull').addEventListener('click', async () => {
+    syncConfig.token = tokenInput.value.trim();
+    syncConfig.gistId = gistIdInput.value.trim();
+    saveSyncConfig();
+    if (!syncConfig.token || !syncConfig.gistId) {
+      setSyncStatus('⚠️ トークンとGist IDの両方を入力してください'); return;
+    }
+    setSyncStatus('⏳ 取得中...');
+    try {
+      const updated = await syncPull(false);
+      refreshSyncStatus(updated ? '✓ クラウドから読込みました' : 'データは最新です');
+    } catch (e) {
+      setSyncStatus('⚠️ ' + e.message);
+    }
+  });
+}
+
+function setSyncStatus(msg) {
+  const el = document.getElementById('sync-status');
+  if (el) el.textContent = msg;
+}
+
+function refreshSyncStatus(extra = '') {
+  const lastSync = syncConfig.lastSyncedAt
+    ? new Date(syncConfig.lastSyncedAt).toLocaleString('ja-JP')
+    : '未同期';
+  setSyncStatus((extra ? extra + '　/　' : '') + `最終同期: ${lastSync}`);
+}
+
 /* ---------- 起動 ---------- */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   bindEvents();
   renderAll();
   switchView('record');
+
+  // 自動同期がONなら起動時にクラウドから取得
+  if (syncConfig.autoSync && syncConfig.token && syncConfig.gistId) {
+    try {
+      await syncPull(true);
+      refreshSyncStatus('✓ 起動時に同期しました');
+    } catch (e) {
+      console.warn('起動時の自動同期失敗', e);
+      setSyncStatus('⚠️ 起動時同期失敗: ' + e.message);
+    }
+  }
 });
