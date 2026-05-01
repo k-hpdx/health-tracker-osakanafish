@@ -114,19 +114,25 @@
       </header>
 
       <div class="card">
-        <h2>☁️ クラウド同期（GitHub Gist）</h2>
-        <p class="hint">GitHubのプライベートGistにデータを保存して、PCとスマホで記録を共有できます。</p>
+        <h2>☁️ クラウド同期（Firebase）</h2>
+        <p class="hint">FirebaseでGoogleアカウント認証してデータをクラウド保存。PCとスマホで同じデータを共有できます。</p>
 
-        <label class="sync-label">GitHub Personal Access Token</label>
-        <input type="password" id="sync-token" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+        <label class="sync-label">Firebase 設定（firebaseConfig オブジェクト全体を貼り付け）</label>
+        <textarea id="sync-firebase-config" rows="7" placeholder='{ "apiKey": "...", "authDomain": "...", "projectId": "...", "storageBucket": "...", "messagingSenderId": "...", "appId": "..." }' autocomplete="off"></textarea>
+        <button id="sync-config-save" class="secondary">💾 設定を保存</button>
 
-        <label class="sync-label">Gist ID（空欄なら新規作成されます）</label>
-        <input type="text" id="sync-gist-id" placeholder="例: 1a2b3c4d5e6f..." autocomplete="off">
+        <div class="sync-divider"></div>
+
+        <p id="sync-user-info" class="sync-user-info">未ログイン</p>
+        <button id="sync-login-btn" class="primary sync-google-btn">Googleでログイン</button>
+        <button id="sync-logout-btn" class="secondary hidden">ログアウト</button>
+
+        <div class="sync-divider"></div>
 
         <div class="sync-toggle">
           <label>
             <input type="checkbox" id="sync-auto-toggle">
-            <span>保存時に自動でクラウドに送信／起動時に自動取得</span>
+            <span>保存時に自動でクラウド送信／ログイン時に自動取得</span>
           </label>
         </div>
 
@@ -136,16 +142,18 @@
         <p id="sync-status" class="sync-status">最終同期: 未同期</p>
 
         <details class="sync-help">
-          <summary>📖 設定方法</summary>
+          <summary>📖 セットアップ方法</summary>
           <ol>
-            <li><a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Fine-grained Personal Access Token</a> を作成（Account permissions → "Gists" に Read and Write を付与）</li>
-            <li>または classic token なら <code>gist</code> スコープを付与</li>
-            <li>取得したトークンを上の欄に貼り付け</li>
-            <li>初回端末で「Gist ID」を空欄のまま「⬆️ クラウドに保存」を押す → 新規Gistが作成され、Gist IDが自動入力されます</li>
-            <li>もう片方の端末では同じトークン＋表示されたGist IDを入力して「⬇️ クラウドから読込」</li>
-            <li>あとは自動同期をONにしておけば保存時に同期されます</li>
+            <li><a href="https://console.firebase.google.com/" target="_blank" rel="noopener">Firebase Console</a> でプロジェクト作成</li>
+            <li>Authentication → Sign-in method → Google を有効化</li>
+            <li>Authentication → Settings → 承認済みドメインに <code>k-hpdx.github.io</code> を追加</li>
+            <li>Firestore Database を作成（本番モード／東京リージョン推奨）</li>
+            <li>Firestore Rules に以下を設定:<br><code>match /users/&#123;userId&#125;/&#123;document=**&#125; { allow read, write: if request.auth != null && request.auth.uid == userId; }</code></li>
+            <li>プロジェクト設定 → ウェブアプリを追加 → firebaseConfig をコピー</li>
+            <li>上の入力欄に貼り付けて「💾 設定を保存」</li>
+            <li>「Googleでログイン」でログイン → 2台目（スマホ等）も同じGoogleアカウントでログインすればデータ共有されます</li>
           </ol>
-          <p class="hint">⚠️ トークンはこの端末のブラウザに保存されます。共用端末では使用しないでください。</p>
+          <p class="hint">⚠️ Firebase設定はこの端末のブラウザに保存されます。共用端末では使用しないでください。</p>
         </details>
       </div>
 
@@ -195,7 +203,7 @@
 
       <div class="card">
         <h2>ℹ️ バージョン</h2>
-        <p class="hint">健康記録 v1.1.0</p>
+        <p class="hint">健康記録 v1.2.0</p>
       </div>
     </section>
 
@@ -217,6 +225,22 @@
 
   </main>
 
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
+    import {
+      getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+    } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js';
+    import {
+      getFirestore, doc, setDoc, getDoc, enableIndexedDbPersistence
+    } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
+
+    window.__firebase = {
+      initializeApp,
+      getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+      getFirestore, doc, setDoc, getDoc, enableIndexedDbPersistence
+    };
+    window.dispatchEvent(new Event('firebase-ready'));
+  </script>
   <script src="app.js"></script>
 </body>
 </html>

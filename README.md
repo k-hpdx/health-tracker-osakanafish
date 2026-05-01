@@ -7,7 +7,7 @@
 - **インストール不要**：ブラウザで開くだけ。スマホでは「ホーム画面に追加」でアプリ化できます
 - **オフライン対応**：一度開けばネットなしで動作します
 - **無料**：サーバー不要。GitHubアカウントがあればPC↔スマホ同期も無料
-- **同期は任意**：ローカル保存のままでもOK、GitHub Gist連携でクラウド同期も可
+- **同期は任意**：ローカル保存のままでもOK、Firebase（Googleログイン）でクラウド同期も可
 
 ## 記録できる項目
 
@@ -43,20 +43,41 @@
 
 ## クラウド同期（PC ↔ スマホ）
 
-GitHub Gistを使って同じデータを複数端末で共有できます。
+Firebase Authentication（Googleログイン）+ Cloud Firestore で同じデータを複数端末で共有できます。
 
-### セットアップ
-1. [GitHub Personal Access Token](https://github.com/settings/tokens?type=beta) を作成
-   - Fine-grained: Account permissions → "Gists" に **Read and Write** を付与
-   - または classic token なら `gist` スコープを付与
-2. アプリの「設定」→「☁️ クラウド同期」にトークンを貼り付け
-3. **初回（PC側）**：Gist IDは空欄のまま「⬆️ クラウドに保存」 → 新規Gistが作成され、IDが自動入力される
-4. **2台目（スマホ側）**：同じトークン＋表示されたGist IDを入力して「⬇️ クラウドから読込」
-5. 「保存時に自動でクラウドに送信／起動時に自動取得」をON にすれば以降は自動
+### Firebase 側のセットアップ（初回のみ）
+
+1. [Firebase Console](https://console.firebase.google.com/) で新規プロジェクトを作成
+2. **Authentication** → Sign-in method → **Google** を有効化
+3. **Authentication → Settings → 承認済みドメイン** に公開URLのドメインを追加（例: `username.github.io`）
+4. **Firestore Database** を作成（本番環境モード／リージョンは `asia-northeast1` 推奨）
+5. **Firestore → ルール** に以下を貼り付けて公開:
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /users/{userId}/{document=**} {
+         allow read, write: if request.auth != null && request.auth.uid == userId;
+       }
+     }
+   }
+   ```
+6. **プロジェクト設定 → マイアプリ → ウェブアプリ（`</>`）を追加** → 表示される `firebaseConfig` オブジェクトをコピー
+
+### アプリ側のセットアップ（PC・スマホそれぞれ）
+
+1. アプリの「設定」→「☁️ クラウド同期」を開く
+2. コピーした `firebaseConfig` を貼り付けて「💾 設定を保存」
+3. 「Googleでログイン」を押して同じGoogleアカウントでログイン
+4. **初回（PC側）**: 「⬆️ クラウドに保存」でデータをアップロード
+5. **2台目（スマホ側）**: ログイン後「⬇️ クラウドから読込」で同期
+6. 「保存時に自動でクラウド送信／ログイン時に自動取得」をON にすれば以降は自動
 
 ### セキュリティ
-- トークンはブラウザのLocalStorageに保存されます（共用端末では使用しないでください）
-- Gistは Secret（非公開）で作成されます
+
+- 認証はFirebase Authentication（Google ログイン）— パスワードはアプリで扱いません
+- Firestore Security Rules により、ログイン中ユーザーは自分の `users/{自分のuid}` 配下のみアクセス可能
+- Firebase設定（apiKey等）はブラウザのLocalStorageに保存されます。共用端末では使用しないでください
 - データ競合時はタイムスタンプで新しい方を優先
 
 ## データのバックアップ
@@ -98,4 +119,4 @@ health-tracker/
 
 ## バージョン
 
-v1.1.0（GitHub Gistクラウド同期対応）
+v1.2.0（Firebase Auth + Firestore クラウド同期対応）

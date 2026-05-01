@@ -4,7 +4,6 @@
 /* ---------- 定数 ---------- */
 const STORAGE_KEY = 'health-tracker-v1';
 const SYNC_KEY = 'health-tracker-sync-v1';
-const GIST_FILENAME = 'health-tracker-data.json';
 
 const DEFAULT_TEAS = [
   'ハブ茶', '白湯', '番茶', '麦茶', 'トウモロコシ茶',
@@ -114,8 +113,7 @@ function saveData() {
 /* ---------- 同期設定の永続化 ---------- */
 function defaultSyncConfig() {
   return {
-    token: '',
-    gistId: '',
+    firebaseConfig: '',
     autoSync: false,
     lastSyncedAt: null
   };
@@ -136,75 +134,76 @@ function saveSyncConfig() {
   localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
 }
 
-/* ---------- GitHub Gist API ---------- */
-function gistHeaders() {
-  return {
-    'Authorization': `token ${syncConfig.token}`,
-    'Accept': 'application/vnd.github+json',
-    'Content-Type': 'application/json'
-  };
+/* ---------- Firebase 状態 ---------- */
+let firebaseApp = null;
+let firebaseAuth = null;
+let firebaseDb = null;
+let firebaseUser = null;
+
+function parseFirebaseConfig(rawText) {
+  if (!rawText || !rawText.trim()) throw new Error('Firebase設定が空です');
+  const text = rawText.trim();
+  try { return JSON.parse(text); } catch (_) {}
+  try {
+    const cleaned = text
+      .replace(/^\s*const\s+\w+\s*=\s*/, '')
+      .replace(/^\s*(?:var|let)\s+\w+\s*=\s*/, '')
+      .replace(/;?\s*$/, '');
+    return (new Function('return (' + cleaned + ')'))();
+  } catch (e) {
+    throw new Error('Firebase設定の解析に失敗しました。{ apiKey: "...", ... } 形式で貼り付けてください');
+  }
 }
 
-async function gistCreate() {
-  const res = await fetch('https://api.github.com/gists', {
-    method: 'POST',
-    headers: gistHeaders(),
-    body: JSON.stringify({
-      description: '健康記録アプリのデータ',
-      public: false,
-      files: {
-        [GIST_FILENAME]: { content: JSON.stringify(state.data, null, 2) }
-      }
-    })
+function firebaseInit() {
+  if (firebaseApp) return;
+  if (!window.__firebase) throw new Error('Firebase SDK が読み込まれていません');
+  const config = parseFirebaseConfig(syncConfig.firebaseConfig);
+  const f = window.__firebase;
+  firebaseApp = f.initializeApp(config);
+  firebaseAuth = f.getAuth(firebaseApp);
+  firebaseDb = f.getFirestore(firebaseApp);
+  try { f.enableIndexedDbPersistence(firebaseDb); } catch (_) {}
+  f.onAuthStateChanged(firebaseAuth, (user) => {
+    firebaseUser = user;
+    onFirebaseAuthChanged(user);
   });
-  if (!res.ok) throw new Error(`Gist作成失敗 (${res.status})`);
-  const json = await res.json();
-  return json.id;
 }
 
-async function gistUpdate() {
-  const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
-    method: 'PATCH',
-    headers: gistHeaders(),
-    body: JSON.stringify({
-      files: {
-        [GIST_FILENAME]: { content: JSON.stringify(state.data, null, 2) }
-      }
-    })
-  });
-  if (!res.ok) throw new Error(`Gist更新失敗 (${res.status})`);
+async function firebaseSignIn() {
+  firebaseInit();
+  const f = window.__firebase;
+  const provider = new f.GoogleAuthProvider();
+  await f.signInWithPopup(firebaseAuth, provider);
 }
 
-async function gistFetch() {
-  const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
-    headers: gistHeaders()
-  });
-  if (!res.ok) throw new Error(`Gist取得失敗 (${res.status})`);
-  const json = await res.json();
-  const file = json.files && json.files[GIST_FILENAME];
-  if (!file) throw new Error('Gist内にデータファイルが見つかりません');
-  return JSON.parse(file.content);
+async function firebaseSignOut() {
+  if (!firebaseAuth) return;
+  await window.__firebase.signOut(firebaseAuth);
 }
 
-/* ---------- 同期処理 ---------- */
+/* ---------- 同期処理（Firestore） ---------- */
 async function syncPush() {
-  if (!syncConfig.token) throw new Error('トークンが未設定です');
+  if (!firebaseUser) throw new Error('先にGoogleでログインしてください');
   state.data.lastModified = Date.now();
   saveData();
-  if (!syncConfig.gistId) {
-    syncConfig.gistId = await gistCreate();
-  } else {
-    await gistUpdate();
-  }
+  const f = window.__firebase;
+  const ref = f.doc(firebaseDb, 'users', firebaseUser.uid, 'data', 'main');
+  await f.setDoc(ref, state.data);
   syncConfig.lastSyncedAt = Date.now();
   saveSyncConfig();
 }
 
 async function syncPull(silent = false) {
-  if (!syncConfig.token || !syncConfig.gistId) {
-    throw new Error('トークンとGist IDの両方が必要です');
+  if (!firebaseUser) throw new Error('先にGoogleでログインしてください');
+  const f = window.__firebase;
+  const ref = f.doc(firebaseDb, 'users', firebaseUser.uid, 'data', 'main');
+  const snap = await f.getDoc(ref);
+  if (!snap.exists()) {
+    if (silent) return false;
+    throw new Error('クラウドにデータがまだありません。先に⬆️で保存してください');
   }
-  const cloud = await gistFetch();
+  const cloud = snap.data();
   const cloudTime = cloud.lastModified || 0;
   const localTime = state.data.lastModified || 0;
 
@@ -394,7 +393,7 @@ function onSave() {
   status.textContent = `✓ ${formatDateJP(state.editingDate)} の記録を保存しました`;
   setTimeout(() => { status.textContent = ''; }, 3000);
 
-  if (syncConfig.autoSync && syncConfig.token) {
+  if (syncConfig.autoSync && firebaseUser) {
     autoPushInBackground(status);
   }
 }
@@ -789,40 +788,72 @@ function bindEvents() {
 
 /* ---------- 同期UIイベント ---------- */
 function bindSyncEvents() {
-  const tokenInput = document.getElementById('sync-token');
-  const gistIdInput = document.getElementById('sync-gist-id');
+  const configInput = document.getElementById('sync-firebase-config');
   const autoToggle = document.getElementById('sync-auto-toggle');
 
-  if (!tokenInput) return;
+  if (!configInput) return;
 
-  tokenInput.value = syncConfig.token || '';
-  gistIdInput.value = syncConfig.gistId || '';
+  configInput.value = syncConfig.firebaseConfig || '';
   autoToggle.checked = !!syncConfig.autoSync;
   refreshSyncStatus();
+  updateAuthUI(firebaseUser);
 
-  tokenInput.addEventListener('change', () => {
-    syncConfig.token = tokenInput.value.trim();
+  document.getElementById('sync-config-save').addEventListener('click', () => {
+    const raw = configInput.value.trim();
+    if (!raw) { setSyncStatus('⚠️ Firebase設定を入力してください'); return; }
+    try {
+      parseFirebaseConfig(raw);
+    } catch (e) {
+      setSyncStatus('⚠️ ' + e.message);
+      return;
+    }
+    syncConfig.firebaseConfig = raw;
     saveSyncConfig();
+    if (firebaseApp) {
+      setSyncStatus('✓ 設定を保存しました（変更を反映するにはページを再読み込みしてください）');
+    } else {
+      try {
+        firebaseInit();
+        setSyncStatus('✓ 設定を保存しました。「Googleでログイン」を押してください');
+      } catch (e) {
+        setSyncStatus('⚠️ ' + e.message);
+      }
+    }
   });
-  gistIdInput.addEventListener('change', () => {
-    syncConfig.gistId = gistIdInput.value.trim();
-    saveSyncConfig();
-  });
+
   autoToggle.addEventListener('change', () => {
     syncConfig.autoSync = autoToggle.checked;
     saveSyncConfig();
     refreshSyncStatus(autoToggle.checked ? '自動同期 ON' : '自動同期 OFF');
   });
 
+  document.getElementById('sync-login-btn').addEventListener('click', async () => {
+    if (!syncConfig.firebaseConfig) {
+      setSyncStatus('⚠️ 先にFirebase設定を保存してください'); return;
+    }
+    setSyncStatus('⏳ ログイン中...');
+    try {
+      await firebaseSignIn();
+      setSyncStatus('✓ ログインしました');
+    } catch (e) {
+      setSyncStatus('⚠️ ログイン失敗: ' + (e.message || e.code || 'unknown'));
+    }
+  });
+
+  document.getElementById('sync-logout-btn').addEventListener('click', async () => {
+    try {
+      await firebaseSignOut();
+      setSyncStatus('ログアウトしました');
+    } catch (e) {
+      setSyncStatus('⚠️ ' + e.message);
+    }
+  });
+
   document.getElementById('sync-push').addEventListener('click', async () => {
-    syncConfig.token = tokenInput.value.trim();
-    syncConfig.gistId = gistIdInput.value.trim();
-    saveSyncConfig();
-    if (!syncConfig.token) { setSyncStatus('⚠️ トークンを入力してください'); return; }
+    if (!firebaseUser) { setSyncStatus('⚠️ 先にGoogleでログインしてください'); return; }
     setSyncStatus('⏳ 送信中...');
     try {
       await syncPush();
-      gistIdInput.value = syncConfig.gistId;
       refreshSyncStatus('✓ クラウドへ保存しました');
     } catch (e) {
       setSyncStatus('⚠️ ' + e.message);
@@ -830,12 +861,7 @@ function bindSyncEvents() {
   });
 
   document.getElementById('sync-pull').addEventListener('click', async () => {
-    syncConfig.token = tokenInput.value.trim();
-    syncConfig.gistId = gistIdInput.value.trim();
-    saveSyncConfig();
-    if (!syncConfig.token || !syncConfig.gistId) {
-      setSyncStatus('⚠️ トークンとGist IDの両方を入力してください'); return;
-    }
+    if (!firebaseUser) { setSyncStatus('⚠️ 先にGoogleでログインしてください'); return; }
     setSyncStatus('⏳ 取得中...');
     try {
       const updated = await syncPull(false);
@@ -844,6 +870,36 @@ function bindSyncEvents() {
       setSyncStatus('⚠️ ' + e.message);
     }
   });
+}
+
+function updateAuthUI(user) {
+  const loginBtn = document.getElementById('sync-login-btn');
+  const logoutBtn = document.getElementById('sync-logout-btn');
+  const userInfo = document.getElementById('sync-user-info');
+  if (!loginBtn || !logoutBtn || !userInfo) return;
+  if (user) {
+    loginBtn.classList.add('hidden');
+    logoutBtn.classList.remove('hidden');
+    userInfo.textContent = `✓ ログイン中: ${user.email || user.displayName || user.uid}`;
+  } else {
+    loginBtn.classList.remove('hidden');
+    logoutBtn.classList.add('hidden');
+    userInfo.textContent = '未ログイン';
+  }
+}
+
+async function onFirebaseAuthChanged(user) {
+  updateAuthUI(user);
+  refreshSyncStatus();
+  if (user && syncConfig.autoSync) {
+    try {
+      const updated = await syncPull(true);
+      if (updated) refreshSyncStatus('✓ ログイン時に同期しました');
+    } catch (e) {
+      console.warn('自動同期失敗', e);
+      setSyncStatus('⚠️ 自動同期失敗: ' + (e.message || e.code));
+    }
+  }
 }
 
 function setSyncStatus(msg) {
@@ -859,19 +915,24 @@ function refreshSyncStatus(extra = '') {
 }
 
 /* ---------- 起動 ---------- */
-document.addEventListener('DOMContentLoaded', async () => {
+function bootFirebaseIfConfigured() {
+  if (!syncConfig.firebaseConfig) return;
+  try {
+    firebaseInit();
+  } catch (e) {
+    console.warn('Firebase初期化失敗', e);
+    setSyncStatus('⚠️ Firebase初期化失敗: ' + e.message);
+  }
+}
+
+function whenFirebaseReady(cb) {
+  if (window.__firebase) { cb(); return; }
+  window.addEventListener('firebase-ready', cb, { once: true });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
   bindEvents();
   renderAll();
   switchView('record');
-
-  // 自動同期がONなら起動時にクラウドから取得
-  if (syncConfig.autoSync && syncConfig.token && syncConfig.gistId) {
-    try {
-      await syncPull(true);
-      refreshSyncStatus('✓ 起動時に同期しました');
-    } catch (e) {
-      console.warn('起動時の自動同期失敗', e);
-      setSyncStatus('⚠️ 起動時同期失敗: ' + e.message);
-    }
-  }
+  whenFirebaseReady(bootFirebaseIfConfigured);
 });
