@@ -144,15 +144,40 @@ function parseFirebaseConfig(rawText) {
   if (!rawText || !rawText.trim()) throw new Error('Firebase設定が空です');
   const text = rawText.trim();
   try { return JSON.parse(text); } catch (_) {}
-  try {
-    const cleaned = text
-      .replace(/^\s*const\s+\w+\s*=\s*/, '')
-      .replace(/^\s*(?:var|let)\s+\w+\s*=\s*/, '')
-      .replace(/;?\s*$/, '');
-    return (new Function('return (' + cleaned + ')'))();
-  } catch (e) {
-    throw new Error('Firebase設定の解析に失敗しました。{ apiKey: "...", ... } 形式で貼り付けてください');
+  const block = extractFirebaseConfigBlock(text);
+  if (!block) {
+    throw new Error('Firebase設定の解析に失敗しました。{ apiKey: "...", ... } を含む部分を貼り付けてください');
   }
+  try {
+    return (new Function('return (' + block + ')'))();
+  } catch (e) {
+    throw new Error('Firebase設定の解析に失敗しました: ' + e.message);
+  }
+}
+
+function extractFirebaseConfigBlock(text) {
+  const apiKeyIdx = text.indexOf('apiKey');
+  if (apiKeyIdx === -1) return null;
+  let openIdx = -1, depth = 0;
+  for (let i = apiKeyIdx; i >= 0; i--) {
+    const c = text[i];
+    if (c === '}') depth++;
+    else if (c === '{') {
+      if (depth === 0) { openIdx = i; break; }
+      depth--;
+    }
+  }
+  if (openIdx === -1) return null;
+  depth = 0;
+  for (let i = openIdx; i < text.length; i++) {
+    const c = text[i];
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return text.slice(openIdx, i + 1);
+    }
+  }
+  return null;
 }
 
 function firebaseInit() {
