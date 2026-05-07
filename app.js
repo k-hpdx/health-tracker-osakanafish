@@ -42,6 +42,18 @@ const SCALE_LABELS = [
 
 const WEEKDAYS_JP = ['日', '月', '火', '水', '木', '金', '土'];
 
+const MATRIX_ROWS = [
+  { key: 'yoga',           label: '🧘 ヨガ',      type: 'yesno' },
+  { key: 'caffeine',       label: '☕ カフェイン', type: 'array' },
+  { key: 'teas',           label: '🍵 お茶',      type: 'array' },
+  { key: 'whiteSugar',     label: '🍬 白砂糖',    type: 'yesno' },
+  { key: 'wheat',          label: '🌾 小麦',      type: 'yesno' },
+  { key: 'period',         label: '🌸 生理',      type: 'yesno' },
+  { key: 'conditionScale', label: '😊 体調',      type: 'scale' },
+  { key: 'weather',        label: '🌤 天気',      type: 'weather' },
+  { key: 'symptoms',       label: '🩺 症状',      type: 'array' }
+];
+
 /* ---------- 状態 ---------- */
 let state = {
   currentDate: todayKey(),
@@ -475,9 +487,88 @@ function renderCalendar() {
   }
 
   renderCalendarDetail();
+  renderMonthlyMatrix();
   renderMonthlyStats();
   renderConditionChart();
   renderSymptomRanking();
+}
+
+function renderMonthlyMatrix() {
+  const [yearStr, monthStr] = state.calendarMonth.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr) - 1;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = todayKey();
+  const selected = state.selectedCalDate;
+
+  const dayKey = (d) =>
+    `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+  let html = '<thead><tr><th class="matrix-row-label">日付</th>';
+  for (let day = 1; day <= daysInMonth; day++) {
+    const key = dayKey(day);
+    const dow = new Date(year, month, day).getDay();
+    let cls = 'matrix-day';
+    if (dow === 0) cls += ' sun';
+    if (dow === 6) cls += ' sat';
+    if (key === today) cls += ' today';
+    if (key === selected) cls += ' selected';
+    html += `<th class="${cls}" data-date="${key}">${day}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  MATRIX_ROWS.forEach(rowDef => {
+    html += `<tr><th class="matrix-row-label">${rowDef.label}</th>`;
+    for (let day = 1; day <= daysInMonth; day++) {
+      const key = dayKey(day);
+      const record = state.data.records[key];
+      let cls = 'matrix-cell';
+      if (record) cls += ' has-record';
+      if (key === selected) cls += ' selected';
+      html += `<td class="${cls}" data-date="${key}">${matrixCellContent(record, rowDef)}</td>`;
+    }
+    html += '</tr>';
+  });
+  html += '</tbody>';
+
+  const table = document.getElementById('monthly-matrix');
+  table.innerHTML = html;
+  table.onclick = (e) => {
+    const cell = e.target.closest('[data-date]');
+    if (!cell) return;
+    state.selectedCalDate = cell.dataset.date;
+    renderCalendar();
+    const detail = document.getElementById('cal-detail');
+    if (detail && !detail.classList.contains('hidden')) {
+      detail.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+}
+
+function matrixCellContent(record, rowDef) {
+  if (!record) return '<span class="m-empty">-</span>';
+  const val = record[rowDef.key];
+
+  switch (rowDef.type) {
+    case 'array':
+      return (Array.isArray(val) && val.length > 0)
+        ? '<span class="m-yes">〇</span>'
+        : '<span class="m-empty">-</span>';
+    case 'yesno':
+      if (val === true)  return '<span class="m-yes">〇</span>';
+      if (val === false) return '<span class="m-no">×</span>';
+      return '<span class="m-empty">-</span>';
+    case 'scale':
+      return (typeof val === 'number')
+        ? `<span class="m-scale s${val}">${val}</span>`
+        : '<span class="m-empty">-</span>';
+    case 'weather': {
+      if (!val) return '<span class="m-empty">-</span>';
+      const w = WEATHER_OPTIONS.find(o => o.value === val);
+      return w ? `<span class="m-weather">${w.emoji}</span>` : '<span class="m-empty">-</span>';
+    }
+  }
+  return '<span class="m-empty">-</span>';
 }
 
 function getMonthRecords() {

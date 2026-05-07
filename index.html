@@ -88,6 +88,19 @@
         <button id="cal-detail-edit" class="secondary">この日を編集する</button>
       </div>
 
+      <div class="card matrix-card">
+        <h2>📋 月間一覧表</h2>
+        <p class="hint">横スクロールで日付を確認・列をタップで詳細表示</p>
+        <div class="matrix-scroll">
+          <table id="monthly-matrix" class="monthly-matrix"></table>
+        </div>
+        <div class="matrix-legend">
+          <span><span class="m-yes">〇</span> あり</span>
+          <span><span class="m-no">×</span> なし（記録済み）</span>
+          <span><span class="m-empty">-</span> 未記録</span>
+        </div>
+      </div>
+
       <div class="card">
         <h2>📊 今月のサマリー</h2>
         <div id="monthly-stats" class="stats-grid"></div>
@@ -203,7 +216,7 @@
 
       <div class="card">
         <h2>ℹ️ バージョン</h2>
-        <p class="hint">健康記録 v1.2.0</p>
+        <p class="hint">健康記録 v1.3.0</p>
       </div>
     </section>
 
